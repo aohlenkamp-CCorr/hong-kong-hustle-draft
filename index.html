@@ -97,6 +97,16 @@
   .stat-chip.avail .num{color:var(--cyan);}
   .stat-chip.taken .num{color:var(--taken);}
 
+  .copy-btn{
+    width:100%; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px;
+    background:linear-gradient(90deg, rgba(255,61,129,0.16), rgba(35,232,196,0.16));
+    border:1px solid var(--line-strong); color:var(--text);
+    border-radius:10px; padding:10px; font-family:'Inter',sans-serif; font-weight:700; font-size:13px;
+    letter-spacing:0.01em;
+  }
+  .copy-btn .ic{font-size:15px;}
+  .copy-btn.copied{background:var(--cyan-dim); border-color:rgba(35,232,196,0.5); color:var(--cyan);}
+
   /* search + filters */
   .controls{padding:10px 14px 8px; border-bottom:1px solid var(--line); background:var(--panel-alt);}
   .search-wrap{position:relative;}
@@ -280,6 +290,7 @@
     <div class="stat-chip taken"><div class="num" id="statTaken">0</div><div class="lbl">Taken</div></div>
     <div class="stat-chip"><div class="num" id="statTotal">0</div><div class="lbl">Total Pool</div></div>
   </div>
+  <button class="copy-btn" id="copyBtn"><span class="ic">&#128203;</span> Copy Last 5 / Top 10</button>
 </header>
 
 <div class="controls" id="controlsBar">
@@ -630,6 +641,77 @@ document.getElementById('mainContent').addEventListener('click', (e)=>{
 });
 
 document.getElementById('undoBtn').addEventListener('click', undoLast);
+
+// ---------- Copy Last 5 / Top 10 ----------
+function buildCopyText(){
+  const {status} = computeState();
+
+  // Last 5 distinct players touched (Mine or Taken), most-recent last,
+  // based on each player's latest event in the log.
+  const seen = new Set();
+  const recent = [];
+  for(let i = log.length - 1; i >= 0 && recent.length < 5; i--){
+    const entry = log[i];
+    if(entry.status === 'available') continue;
+    if(seen.has(entry.rank)) continue;
+    seen.add(entry.rank);
+    const player = PLAYERS.find(p => p.rank === entry.rank);
+    if(player) recent.push(player.name);
+  }
+  recent.reverse(); // oldest of the 5 first, most recent last
+
+  const topAvailable = PLAYERS
+    .filter(p => (status[p.rank]||'available') === 'available')
+    .sort((a,b)=> b.vorp - a.vorp)
+    .slice(0, 10)
+    .map(p => p.name);
+
+  const draftedPart = recent.length ? `${recent.join(', ')} are taken.` : 'No picks yet.';
+  const availPart = topAvailable.length ? `Top available: ${topAvailable.join(', ')}.` : '';
+  return `${draftedPart} ${availPart} PICK`.replace(/\s+/g,' ').trim();
+}
+
+function fallbackCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch(e){ ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+document.getElementById('copyBtn').addEventListener('click', async ()=>{
+  const text = buildCopyText();
+  const btn = document.getElementById('copyBtn');
+  let success = false;
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(text);
+      success = true;
+    } else {
+      success = fallbackCopy(text);
+    }
+  } catch(e){
+    success = fallbackCopy(text);
+  }
+
+  if(success){
+    btn.classList.add('copied');
+    btn.innerHTML = '<span class="ic">&#10003;</span> Copied!';
+    showToast(`Copied: <b>${text.length > 70 ? text.slice(0,70)+'…' : text}</b>`);
+  } else {
+    showToast('Copy failed — long-press the text below to copy manually.');
+  }
+  setTimeout(()=>{
+    btn.classList.remove('copied');
+    btn.innerHTML = '<span class="ic">&#128203;</span> Copy Last 5 / Top 10';
+  }, 1600);
+});
 
 document.getElementById('posChips').addEventListener('click', (e)=>{
   const chip = e.target.closest('.pos-chip');
